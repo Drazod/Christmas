@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magic 3D Santa - Sentimental Wishes</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Segoe UI', sans-serif; }
+        #canvas-container { width: 100%; height: 100vh; display: block; }
+        #ui-layer { position: absolute; bottom: 30px; width: 100%; text-align: center; pointer-events: none; z-index: 100; }
+        .guide { 
+            color: #333; font-size: 14px; margin-bottom: 20px; text-shadow: 0 0 2px white;
+            background: rgba(255, 255, 255, 0.9); display: inline-block; padding: 12px 30px;
+            border-radius: 30px; border: 2px solid #FFC0CB; /* Pink Border */
+            font-weight: bold;
+        }
+        button {
+            pointer-events: auto; cursor: pointer;
+            background: linear-gradient(to right, #FFB6C1, #FF69B4); /* Pink Gradient */
+            color: #FFF; border: 2px solid #FFF;
+            padding: 15px 50px; border-radius: 30px; 
+            font-weight: 800; font-size: 16px;
+            box-shadow: 0 0 20px rgba(255, 105, 180, 0.6);
+            animation: pulse 2s infinite;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+        #camera-preview { position: absolute; top: 15px; right: 15px; width: 120px; height: 90px; border: 2px solid #FFD700; transform: scaleX(-1); opacity: 0.7; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <div id="ui-layer">
+        <div class="guide">
+            🖐 <b>Open Hand:</b> Random Wish &nbsp;|&nbsp; 🫶 <b>Two Hands:</b> Vector Santa &nbsp;|&nbsp; ✊ <b>Fist:</b> Snowy Tree
+        </div><br>
+        <button id="btnStart" onclick="startSystem()">START MAGIC</button>
+    </div>
+    <div id="canvas-container"></div>
+    <video class="input_video" style="display:none"></video>
+    <canvas id="camera-preview"></canvas>
+
+    <script>
+        let scene, camera, renderer;
+        let groupOrnaments, groupFoliage, groupLights, snowSystem; 
+        let starMesh, santaTextMesh, scrollMesh;
+        let state = 'TREE'; 
+        let lastState = 'TREE'; 
+
+        // Global Scroll Variables
+        let scrollCanvas, scrollCtx, scrollTexture;
+
+        // --- NEW LONGER, SENTIMENTAL WISHES ---
+        const WISHES = [
+            ["Merry Christmas", "May your heart be light, your days be bright, and your home filled with the warmth of love."],
+            ["Happy Holidays", "Wishing you a season of gladness, a season of cheer, and to top it all off - a wonderful year."],
+            ["Peace & Joy", "May the quiet beauty of this holiday season bring you deep peace and happy memories to cherish."],
+            ["With Love", "Sending you warmest thoughts and best wishes for a wonderful holiday and a very happy New Year."],
+            ["Magical Moments", "May the wonder and miracle of Christmas fill your heart with warmth, love, and inspiration."],
+            ["Season's Greetings", "Cherish the present, look back with gratitude, and look forward with hope. Happy Holidays!"],
+            ["Warmest Wishes", "May the closeness of friends, the comfort of home, and the unity of our nation renew your spirits."],
+            ["A Holiday Prayer", "May you have the spirit of Christmas which is Peace, the gladness which is Hope, and the heart which is Love."],
+            ["Joy to the World", "Wishing you a Christmas full of forgiveness, love, and the simple joys that make life beautiful."],
+            ["Ho Ho Ho!", "May your stocking be full of joy, your table full of plenty, and your heart full of happiness."]
+        ];
+
+        // Helper Randoms
+        const rand = () => Math.random();
+
+        const CONFIG = {
+            ornamentCount: 12000,  
+            foliageCount: 25000,   
+            lightCount: 10000,     
+            treeHeight: 140,    
+            treeBaseRadius: 48, 
+            layers: 19          
+        };
+
+        const dotTex = (function() {
+            const canvas = document.createElement('canvas'); canvas.width = 32; canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            const grd = ctx.createRadialGradient(16, 16, 0, 16, 16, 15);
+            grd.addColorStop(0, 'white'); grd.addColorStop(1, 'transparent');
+            ctx.fillStyle = grd; ctx.fillRect(0,0,32,32);
+            return new THREE.CanvasTexture(canvas);
+        })();
+
+        function init3D() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x1a1a1a, 0.003);
+            
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 20, 190);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            groupOrnaments = createParticleSystem('ornaments', CONFIG.ornamentCount, 2.2);
+            groupFoliage = createParticleSystem('foliage', CONFIG.foliageCount, 1.8);
+            groupLights = createParticleSystem('lights', CONFIG.lightCount, 1.6); 
+
+            createDecorations();
+            createSnow(); 
+            initScroll(); 
+            animate();
+        }
+
+        // --- SCROLL & WISH LOGIC ---
+        function initScroll() {
+            scrollCanvas = document.createElement('canvas');
+            scrollCanvas.width = 512; scrollCanvas.height = 600;
+            scrollCtx = scrollCanvas.getContext('2d');
+            
+            // Draw initial text
+            drawScrollText(["Open Hand", "To receive a wish..."]);
+
+            scrollTexture = new THREE.CanvasTexture(scrollCanvas);
+            const geo = new THREE.PlaneGeometry(70, 80);
+            const pos = geo.attributes.position;
+            for (let i = 0; i < pos.count; i++) pos.setZ(i, Math.pow(pos.getX(i) / 20, 2) * -2);
+            geo.computeVertexNormals();
+            
+            scrollMesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: scrollTexture, transparent: true, side: THREE.DoubleSide }));
+            scrollMesh.visible = false; 
+            scene.add(scrollMesh);
+        }
+
+        // --- NEW: Word Wrap Function for Long Text ---
+        function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+            const words = text.split(' ');
+            let line = '';
+            let currentY = y;
+
+            for(let n = 0; n < words.length; n++) {
+                const testLine = line + words[n] + ' ';
+                const metrics = ctx.measureText(testLine);
+                const testWidth = metrics.width;
+                if (testWidth > maxWidth && n > 0) {
+                    ctx.fillText(line, x, currentY);
+                    line = words[n] + ' ';
+                    currentY += lineHeight;
+                } else {
+                    line = testLine;
+                }
+            }
+            ctx.fillText(line, x, currentY);
+        }
+
+        function drawScrollText(lines) {
+            const ctx = scrollCtx;
+            // Clear / Background
+            ctx.clearRect(0, 0, 512, 600);
+            ctx.fillStyle = '#fdf5e6'; 
+            ctx.beginPath(); ctx.roundRect(10, 10, 492, 580, 20); ctx.fill();
+            ctx.lineWidth = 8; ctx.strokeStyle = '#d4af37'; ctx.stroke();
+            
+            // Header Decorations
+            ctx.textAlign = 'center'; 
+            ctx.fillStyle = '#2F4F4F'; ctx.font = 'italic 28px "Segoe UI"'; 
+            ctx.fillText("Sending you...", 256, 110);
+            
+            // 1. TITLE (Big & Bold)
+            ctx.font = 'bold 52px "Times New Roman"'; 
+            ctx.fillStyle = '#C71585'; // MediumVioletRed
+            ctx.shadowColor = "rgba(0,0,0,0.1)"; ctx.shadowBlur = 4;
+            ctx.fillText(lines[0], 256, 180);
+            
+            // 2. BODY (Long text with wrapping)
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#20B2AA'; // LightSeaGreen
+            ctx.font = 'italic 34px "Times New Roman"';
+            
+            // Use wrapText logic centered
+            wrapText(ctx, lines[1], 256, 260, 400, 45); // width 400px, line height 45px
+            
+            // Footer
+            ctx.font = 'italic 22px "Segoe UI"'; ctx.fillStyle = '#888'; 
+            ctx.fillText("_________________________", 256, 480);
+            
+            ctx.font = '30px "Segoe UI"'; ctx.fillStyle = '#C71585'; 
+            ctx.fillText("❤️ From Santa Ricky❤️", 256, 530);
+
+            if(scrollTexture) scrollTexture.needsUpdate = true;
+        }
+
+        function triggerRandomWish() {
+            const wish = WISHES[Math.floor(Math.random() * WISHES.length)];
+            drawScrollText(wish);
+        }
+
+        // --- SNOWFLAKE LOGIC ---
+        function createSnow() {
+            const particleCount = 2500;
+            const pos = [];
+            const vel = []; 
+
+            for (let i = 0; i < particleCount; i++) {
+                const x = (Math.random() - 0.5) * 400; 
+                const y = (Math.random() - 0.5) * 400; 
+                const z = (Math.random() - 0.5) * 300; 
+                pos.push(x, y, z);
+                vel.push((Math.random() * 1.0) + 0.5, Math.random() * Math.PI * 2);
+            }
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+            geo.userData = { velocity: vel };
+
+            const mat = new THREE.PointsMaterial({
+                size: 1.5, map: dotTex, color: 0xffffff, transparent: true, opacity: 0.6,
+                blending: THREE.AdditiveBlending, depthWrite: false
+            });
+
+            snowSystem = new THREE.Points(geo, mat);
+            scene.add(snowSystem);
+        }
+
+        function updateSnow(time) {
+            const pos = snowSystem.geometry.attributes.position.array;
+            const vel = snowSystem.geometry.userData.velocity;
+
+            for (let i = 0; i < pos.length / 3; i++) {
+                const ix = i * 3; const iy = i * 3 + 1; const iz = i * 3 + 2;
+                const speed = vel[i * 2]; const phase = vel[i * 2 + 1];
+
+                pos[iy] -= speed * 0.4; 
+                pos[ix] += Math.sin(time + phase) * 0.05;
+
+                if (pos[iy] < -100) {
+                    pos[iy] = 200; 
+                    pos[ix] = (Math.random() - 0.5) * 400; 
+                    pos[iz] = (Math.random() - 0.5) * 300; 
+                }
+            }
+            snowSystem.geometry.attributes.position.needsUpdate = true;
+        }
+
+        // --- Geometric Helpers ---
+        function getSpherePoint(r) {
+            const theta = Math.acos(2 * rand() - 1);
+            const phi = 2 * Math.PI * rand();
+            return { x: r * Math.sin(theta) * Math.cos(phi), y: r * Math.cos(theta), z: r * Math.sin(theta) * Math.sin(phi) };
+        }
+        function getCylinderPoint(r, h) {
+            const a = rand() * Math.PI * 2;
+            const y = (rand() - 0.5) * h;
+            return { x: r * Math.cos(a), y: y, z: r * Math.sin(a) };
+        }
+
+        function mapToSanta(type, i, total) {
+            let x=0,y=0,z=0; 
+            const t = i/total;
+            const mappingType = (type === 'ornaments') ? 'red' : (type === 'foliage') ? 'white' : 'detail';
+            
+            if (mappingType === 'red') {
+                 if (t < 0.2) { const s=rand()>0.5?1:-1; const p=getCylinderPoint(9,22); x=(s*11)+p.x; y=-35+p.y; z=p.z; }
+                 else if (t < 0.7) { const r=30*Math.sqrt(rand()); const th=rand()*Math.PI; const h=40; x=r*Math.cos(th*2); y=-10+(rand()-0.5)*h; z=r*Math.sin(th*2)*0.6; if(y>0)x*=(1-(y/50)); }
+                 else if (t < 0.9) { const s=rand()>0.5?1:-1; const p=getCylinderPoint(7,25); x=(s*32)+p.x; y=-5+p.y-(Math.abs(s*32)*0.2); z=p.z; }
+                 else { const h=rand()*30; const r=24*(1-h/30); const a=rand()*Math.PI*2; x=r*Math.cos(a)+(h*0.5); y=38+h; z=r*Math.sin(a); }
+            } else if (mappingType === 'white') {
+                 if (t<0.15) { x=(rand()-0.5)*8; y=-10+(rand()-0.5)*40; z=28*(1-(Math.abs(y+10)/60)); }
+                 else if (t<0.30) { const a=rand()*Math.PI*2; const r=25; x=r*Math.cos(a); y=38+(rand()-0.5)*6; z=r*Math.sin(a); }
+                 else if (t<0.40) { const p=getSpherePoint(6); x=20+p.x; y=68+p.y; z=p.z; }
+                 else if (t<0.80) { const r=20; const a=rand()*Math.PI; const h=rand(); x=r*Math.cos(a)*(0.8+h*0.4); y=25-(Math.abs(Math.cos(a))*5)-(h*20); z=12+r*Math.sin(a)*0.8; }
+                 else { const s=rand()>0.5?1:-1; const r=rand(); x=(s*4)+(s*r*12); y=26+Math.sin(r*Math.PI)*4; z=22; }
+            } else {
+                 if (t<0.25) { const p=getSpherePoint(14); x=p.x; y=28+p.y*0.8; z=5+p.z; }
+                 else if (t<0.40) { const a=rand()*Math.PI*2; const r=31; x=r*Math.cos(a); y=-10+(rand()-0.5)*6; z=r*Math.sin(a); }
+                 else if (t<0.50) { const s=rand()>0.5?1:-1; const p=getSpherePoint(8); x=(s*38)+p.x; y=-18+p.y; z=p.z; }
+                 else if (t<0.60) { const s=rand()>0.5?1:-1; x=(s*11)+(rand()-0.5)*12; y=-46+rand()*8; z=2+(rand()-0.5)*14; }
+                 else if (t<0.70) { const w=Math.floor(rand()*3); const by=5-(w*10); const p=getSpherePoint(2.5); x=p.x; y=by+p.y; z=28+p.z; }
+                 else if (t<0.80) { const bx=(rand()-0.5)*14; const by=(rand()-0.5)*10; if(Math.abs(bx)>4||Math.abs(by)>2.5){x=bx;y=-10+by;z=32;}else{x=(rand()-0.5)*4;y=-10;z=32;} }
+                 else if (t<0.90) { const s=rand()>0.5?1:-1; const p=getSpherePoint(2); x=(s*6)+p.x; y=32+p.y; z=19+p.z; }
+                 else { const s=rand()>0.5?1:-1; const p=getSpherePoint(3); x=(s*11)+p.x; y=28+p.y; z=17+p.z; }
+            }
+            return {x,y,z};
+        }
+
+        function createParticleSystem(type, count, size) {
+            const pTree = [], pSanta = [], pExplode = [], pPhases = [], pVariation = [];
+            const treeData = []; 
+
+            for(let i=0; i<count; i++) {
+                const hNorm = Math.pow(Math.random(), 0.9); 
+                const h = hNorm * CONFIG.treeHeight; 
+
+                const layerHeight = CONFIG.treeHeight / CONFIG.layers;
+                const tInLayer = (h % layerHeight) / layerHeight;
+                const globalRadius = (1 - h/CONFIG.treeHeight) * CONFIG.treeBaseRadius;
+                const flareStrength = 0.5; 
+                const layerFlare = 1 + flareStrength * Math.pow(1 - tInLayer, 1.5); 
+                const maxRadiusAtHeight = globalRadius * layerFlare;
+
+                let r, a;
+                let dRatio = 0; 
+
+                if (type === 'foliage') {
+                    a = Math.random() * Math.PI * 2;
+                    dRatio = Math.sqrt(Math.random()); 
+                    r = maxRadiusAtHeight * dRatio;
+                    if (dRatio > 0.8) r += (Math.random()-0.5) * 2; 
+                } 
+                else if (type === 'ornaments') {
+                    a = Math.random() * Math.PI * 2;
+                    dRatio = 0.9 + (Math.random() * 0.2); 
+                    r = maxRadiusAtHeight * dRatio;
+                }
+                else { 
+                    a = hNorm * Math.PI * 12; // More spirals for taller tree
+                    dRatio = 0.95; 
+                    r = maxRadiusAtHeight * 0.9;
+                }
+
+                const px = r * Math.cos(a);
+                const droop = dRatio * (layerHeight * 0.3);
+                const py = h - 55 - droop; 
+                const pz = r * Math.sin(a);
+
+                pTree.push(px, py, pz);
+                treeData.push(dRatio); 
+                pVariation.push(Math.random());
+
+                const s = mapToSanta(type, i, count);
+                pSanta.push(s.x, s.y, s.z);
+
+                const rad = 150 * Math.cbrt(Math.random()); 
+                const p = Math.acos(2 * Math.random() - 1);
+                const l = 2 * Math.PI * Math.random();
+                pExplode.push(rad * Math.sin(p) * Math.cos(l), rad * Math.sin(p) * Math.sin(l), rad * Math.cos(p));
+                pPhases.push(Math.random() * Math.PI * 2);
+            }
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(pTree, 3));
+            geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+            geo.userData = { 
+                tree: pTree, santa: pSanta, explode: pExplode, 
+                phases: pPhases, treeData: treeData, variation: pVariation 
+            };
+            
+            const mat = new THREE.PointsMaterial({ size: size, map: dotTex, transparent: true, blending: THREE.NormalBlending, depthWrite: false, vertexColors: true });
+            return new THREE.Points(geo, mat);
+        }
+
+        function updateGroup(group, type, time) {
+            const pos = group.geometry.attributes.position.array;
+            const col = group.geometry.attributes.color.array;
+            const targets = group.geometry.userData[state.toLowerCase()] || group.geometry.userData.tree;
+            const phases = group.geometry.userData.phases;
+            const treeData = group.geometry.userData.treeData;
+            const variation = group.geometry.userData.variation;
+
+            const lerpSpeed = (state === 'EXPLODE') ? 0.04 : 0.08; 
+
+            for(let i=0; i<pos.length; i++) {
+                pos[i] += (targets[i] - pos[i]) * lerpSpeed;
+            }
+            
+            const count = pos.length / 3;
+            for(let i=0; i<count; i++) {
+                let r=0, g=0, b=0;
+                const blink = 0.5 + 0.5 * Math.sin(time * 3 + phases[i]);
+                const v = variation[i]; 
+
+                if (state === 'SANTA') {
+                    const mappingType = (type === 'ornaments') ? 'red' : (type === 'foliage') ? 'white' : 'detail';
+                    if (mappingType === 'red') { r=0.85; g=0.05; b=0.05; } 
+                    else if (mappingType === 'white') { r=0.95; g=0.95; b=1.0; } 
+                    else { 
+                        const t = i/count;
+                        if (t<0.25){r=1.0;g=0.85;b=0.75;} else if(t<0.60){r=0.1;g=0.1;b=0.1;} else if(t<0.70){r=0.3;g=0.3;b=0.35;} else if(t<0.80){r=1.0;g=0.84;b=0.0;} else if(t<0.90){r=0.2;g=0.1;b=0.05;} else {r=1.0;g=0.6;b=0.6;}
+                    }
+                } else if (state === 'EXPLODE') {
+                    r=1; g=0.9; b=0.5; 
+                } else {
+                    if (type === 'foliage') {
+                        const d = treeData[i]; 
+                        if (d < 0.5) {
+                            r=0.05; g=0.25; b=0.2; 
+                        } else {
+                            const frost = (d - 0.5) * 2; 
+                            r = 0.2 + frost * 0.4; 
+                            g = 0.5 + frost * 0.4; 
+                            b = 0.4 + frost * 0.5; 
+                        }
+                    } 
+                    else if (type === 'ornaments') {
+                        if (v < 0.2) { r=0.9; g=0.9; b=0.95; } 
+                        else if (v < 0.4) { r=0.0; g=0.8; b=0.8; } 
+                        else if (v < 0.7) { r=1.0; g=0.7; b=0.8; } 
+                        else { r=1.0; g=0.4; b=0.6; }
+                        r+=blink*0.1; g+=blink*0.1; b+=blink*0.1;
+                    } 
+                    else { 
+                        r=1.0; g=0.95; b=0.6;
+                        const twinkle = Math.sin(time * 5 + v * 10);
+                        if (twinkle > 0.5) { r=1; g=1; b=1; }
+                    }
+                }
+                col[i*3] = r; col[i*3+1] = g; col[i*3+2] = b;
+            }
+            group.geometry.attributes.position.needsUpdate = true;
+            group.geometry.attributes.color.needsUpdate = true;
+            
+            if (state === 'SANTA') {
+                group.rotation.y = Math.sin(time * 0.5) * 0.1; 
+            } else if (state === 'TREE') {
+                group.rotation.y += 0.003; 
+            } else {
+                group.rotation.y += 0.005;
+            }
+        }
+
+        function createDecorations() {
+            starMesh = new THREE.Mesh(new THREE.PlaneGeometry(16,16), new THREE.MeshBasicMaterial({map: dotTex, color: 0xE0FFFF, transparent:true, blending: THREE.AdditiveBlending}));
+            starMesh.position.y = 95; 
+            scene.add(starMesh);
+            
+            const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.font = 'bold 85px Arial'; ctx.fillStyle = 'white'; ctx.textAlign = 'center';
+            ctx.shadowColor = '#FF1493'; ctx.shadowBlur = 25;
+            ctx.fillText("HO HO HO! MERRY CHRISTMAS 🎅", 512, 150);
+            santaTextMesh = new THREE.Mesh(new THREE.PlaneGeometry(130, 32), new THREE.MeshBasicMaterial({map: new THREE.CanvasTexture(canvas), transparent: true}));
+            santaTextMesh.position.y = -85; santaTextMesh.visible = false;
+            scene.add(santaTextMesh);
+
+            scene.add(groupOrnaments); scene.add(groupFoliage); scene.add(groupLights);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = Date.now() * 0.001;
+            
+            updateGroup(groupOrnaments, 'ornaments', time);
+            updateGroup(groupFoliage, 'foliage', time);
+            updateGroup(groupLights, 'lights', time);
+            updateSnow(time); 
+            
+            if (state === 'EXPLODE') {
+                scrollMesh.visible = true;
+                scrollMesh.position.y = Math.sin(time) * 2; 
+                scrollMesh.rotation.z = Math.sin(time * 0.5) * 0.05;
+                starMesh.visible = false; santaTextMesh.visible = false;
+            } else {
+                scrollMesh.visible = false;
+                starMesh.visible = (state === 'TREE');
+                santaTextMesh.visible = (state === 'SANTA');
+            }
+            starMesh.rotation.z += 0.05;
+            renderer.render(scene, camera);
+        }
+
+        function startSystem() {
+            document.getElementById('btnStart').style.display = 'none';
+            init3D();
+            const video = document.getElementsByClassName('input_video')[0];
+            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+            hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6 });
+            hands.onResults(results => {
+                const canvas = document.getElementById('camera-preview');
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0,0,120,90); ctx.drawImage(results.image, 0,0,120,90);
+                
+                let newState = 'TREE';
+
+                if (results.multiHandLandmarks.length === 2) {
+                    newState = 'SANTA';
+                } else if (results.multiHandLandmarks.length === 1) {
+                    const lm = results.multiHandLandmarks[0];
+                    const dist = Math.hypot(lm[8].x - lm[0].x, lm[8].y - lm[0].y);
+                    newState = (dist > 0.35) ? 'EXPLODE' : 'TREE';
+                }
+
+                if (newState === 'EXPLODE' && lastState !== 'EXPLODE') {
+                    triggerRandomWish();
+                }
+
+                lastState = newState;
+                state = newState;
+            });
+            const cam = new Camera(video, { onFrame: async () => { await hands.send({image: video}); }, width: 320, height: 240 });
+            cam.start();
+        }
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
