@@ -37,7 +37,7 @@
 <body>
     <div id="ui-layer">
         <div class="guide">
-            🖐 <b>Open Hand:</b> Random Wish &nbsp;|&nbsp; 🫶 <b>Two Hands:</b> Vector Santa &nbsp;|&nbsp; ✊ <b>Fist:</b> Snowy Tree
+            🖐 <b>Open Hand:</b> Wish &nbsp;|&nbsp; 🫶 <b>Two Hands:</b>Santa &nbsp;|&nbsp; ✊ <b>Fist:</b> Snowy Tree
         </div><br>
         <button id="btnStart" onclick="startSystem()">START MAGIC</button>
     </div>
@@ -57,15 +57,11 @@
 
         // --- NEW LONGER, SENTIMENTAL WISHES ---
         const WISHES = [
-            ["Merry Christmas", "May your heart be light, your days be bright, and your home filled with the warmth of love."],
-            ["Happy Holidays", "Wishing you a season of gladness, a season of cheer, and to top it all off - a wonderful year."],
-            ["Peace & Joy", "May the quiet beauty of this holiday season bring you deep peace and happy memories to cherish."],
-            ["With Love", "Sending you warmest thoughts and best wishes for a wonderful holiday and a very happy New Year."],
-            ["Magical Moments", "May the wonder and miracle of Christmas fill your heart with warmth, love, and inspiration."],
-            ["Season's Greetings", "Cherish the present, look back with gratitude, and look forward with hope. Happy Holidays!"],
-            ["Warmest Wishes", "May the closeness of friends, the comfort of home, and the unity of our nation renew your spirits."],
-            ["A Holiday Prayer", "May you have the spirit of Christmas which is Peace, the gladness which is Hope, and the heart which is Love."],
-            ["Joy to the World", "Wishing you a Christmas full of forgiveness, love, and the simple joys that make life beautiful."],
+            ["Merry Christmas", "Chúc Minh Tâm một đêm giáng sinh dui dẻ và ấm áp."],
+            ["Peace & Joy", "Chúc bạn một Noel đầy niềm vui, ít lo âu và nhiều hạnh phúc."],
+            ["With Love", "Mong rằng những điều dịu dàng nhất sẽ tìm đến bạn, như cách bạn luôn mang lại cho mọi người hehehe."],
+            ["Magical Moments", "Hi vọng mọi khoảnh khắc đều tràn ngập phép màu và lấp lánh như cây thông này z."],
+            ["Season's Greetings", "Giáng sinh an lành, năm mới hạnh phúc và mọi điều tốt đẹp sẽ đến với bạn."],
             ["Ho Ho Ho!", "May your stocking be full of joy, your table full of plenty, and your heart full of happiness."]
         ];
 
@@ -185,7 +181,7 @@
             ctx.fillText("_________________________", 256, 480);
             
             ctx.font = '30px "Segoe UI"'; ctx.fillStyle = '#C71585'; 
-            ctx.fillText("❤️ From Santa Ricky❤️", 256, 530);
+            ctx.fillText("From Santa Ricky", 256, 530);
 
             if(scrollTexture) scrollTexture.needsUpdate = true;
         }
